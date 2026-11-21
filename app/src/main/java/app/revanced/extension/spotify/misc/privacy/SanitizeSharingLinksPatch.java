@@ -7,7 +7,8 @@ public final class SanitizeSharingLinksPatch {
 
     private static final LinkSanitizer sanitizer = new LinkSanitizer(
             "si", // Share tracking parameter.
-            "utm_source" // Share source, such as "copy-link".
+            "utm_source", // Share source, such as "copy-link".
+            "sci" // Share card config, such as "spotify:card-config:...".
     );
 
     /**
