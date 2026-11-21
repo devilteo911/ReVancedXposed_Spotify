@@ -24,7 +24,12 @@ public final class UnlockPremiumPatch {
      * @param isExpected    If this attribute is expected to be present in all situations.
      *                      If false, then no error is raised if the attribute is missing.
      */
-    private record OverrideAttribute(String key, Object overrideValue, boolean isExpected) {
+    // Plain class, not a record: D8 debug builds reference an undefined com.android.tools.r8.RecordTag.
+    private static final class OverrideAttribute {
+        final String key;
+        final Object overrideValue;
+        final boolean isExpected;
+
         OverrideAttribute(String key, Object overrideValue) {
             this(key, overrideValue, true);
         }
