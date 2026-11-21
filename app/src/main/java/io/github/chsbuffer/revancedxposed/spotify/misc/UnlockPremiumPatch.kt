@@ -8,6 +8,7 @@ import de.robv.android.xposed.XposedHelpers
 import io.github.chsbuffer.revancedxposed.callMethod
 import io.github.chsbuffer.revancedxposed.findField
 import io.github.chsbuffer.revancedxposed.findFirstFieldByExactType
+import io.github.chsbuffer.revancedxposed.hookMethod
 import io.github.chsbuffer.revancedxposed.spotify.SpotifyHook
 import org.luckypray.dexkit.wrap.DexField
 import org.luckypray.dexkit.wrap.DexMethod
@@ -100,7 +101,8 @@ fun SpotifyHook.UnlockPremium() {
 
     // --- 6. RIMOZIONE SEZIONI ADS (HOME & BROWSE) ---
     // Per la Home
-    ::homeStructureGetSectionsFingerprint.hookMethod {
+    val homeStructureGetSections = ::homeStructureGetSectionsFingerprint.memberOrNull
+    if (homeStructureGetSections != null) homeStructureGetSections.hookMethod {
         after { param ->
             val sections = param.result as? MutableList<*> ?: return@after
             runCatching {
@@ -108,6 +110,10 @@ fun SpotifyHook.UnlockPremium() {
                 sections.javaClass.findFirstFieldByExactType(Boolean::class.java).set(sections, true)
                 UnlockPremiumPatch.removeHomeSections(sections)
             }
+        }
+    } else ::homeSectionMapperFingerprint.hookMethod {
+        before { param ->
+            if (UnlockPremiumPatch.isRemovedHomeSection(param.args[0])) param.result = null
         }
     }
 

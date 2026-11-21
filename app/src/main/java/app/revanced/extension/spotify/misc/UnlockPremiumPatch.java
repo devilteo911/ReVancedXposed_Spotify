@@ -47,7 +47,7 @@ public final class UnlockPremiumPatch {
             // Works along on-demand, allows playing any song without restriction.
             new OverrideAttribute("player-license", "premium"),
             // Secondary license flag
-            new OverrideAttribute("player-license-v2", "premium"),
+            new OverrideAttribute("player-license-v2", "premium", false),
             // Disables shuffle being initially enabled when first playing a playlist.
             new OverrideAttribute("shuffle", FALSE),
             // Allows playing any song on-demand, without a shuffled order.
@@ -171,6 +171,21 @@ public final class UnlockPremiumPatch {
                 section -> XposedHelpers.getIntField(section, "featureTypeCase_"),
                 REMOVED_HOME_SECTIONS
         );
+    }
+
+    /**
+     * Injection point. Whether a single home section is an ad and should be dropped.
+     */
+    public static boolean isRemovedHomeSection(Object section) {
+        try {
+            int featureTypeId = XposedHelpers.getIntField(section, "featureTypeCase_");
+            if (!REMOVED_HOME_SECTIONS.contains(featureTypeId)) return false;
+            Logger.printInfo(() -> "Removing section with feature type id " + featureTypeId);
+            return true;
+        } catch (Exception ex) {
+            Logger.printException(() -> "isRemovedHomeSection failure", ex);
+            return false;
+        }
     }
 
     /**

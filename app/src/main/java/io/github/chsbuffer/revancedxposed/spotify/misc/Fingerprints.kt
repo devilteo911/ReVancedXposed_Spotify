@@ -97,10 +97,21 @@ fun structureGetSectionsFingerprint(className: String) = fingerprint {
     }
 }
 
-val homeStructureGetSectionsFingerprint = findMethodDirect {
-    runCatching { structureGetSectionsFingerprint("homeapi.proto.HomeStructure")() }
-        // 9.2+: home moved to casita.
-        .getOrElse { structureGetSectionsFingerprint("casita.v1.resolved.HomeStructure")() }
+@get:RequireAppVersion(maxVersion = "9.2.0.0")
+val homeStructureGetSectionsFingerprint =
+    structureGetSectionsFingerprint("homeapi.proto.HomeStructure")
+
+// 9.2+: slot-based home maps each casita Section on its own; a null result drops the section.
+// Hook the inner mapper: the outer wrapper (matched by its error string) is small enough to get inlined.
+@get:RequireAppVersion(minVersion = "9.2.0.0")
+val homeSectionMapperFingerprint = findMethodDirect {
+    val wrapper = fingerprint {
+        parameters("Lcom/spotify/casita/v1/resolved/Section;")
+        strings(" section to HomeFeatureType")
+    }
+    wrapper.invokes.single {
+        it.declaredClassName == wrapper.declaredClassName && it.paramTypeNames == wrapper.paramTypeNames
+    }
 }
 val browseStructureGetSectionsFingerprint =
     structureGetSectionsFingerprint("browsita.v1.resolved.BrowseStructure")
