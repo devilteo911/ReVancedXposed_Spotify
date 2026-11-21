@@ -3,11 +3,40 @@ name: Android CI
 on:
   push:
     branches: [ "main" ]
+  pull_request:
   schedule:
     - cron: '0 0 * * *'
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # D8 desugars records to extend com.android.tools.r8.RecordTag, which debug builds never define:
+    # the class then fails to load at runtime. Use a plain final class.
+    - name: No Java records
+      run: |
+        if grep -rnE '\brecord\s+[A-Z]\w*\s*[(<]' --include='*.java' app/src/main/java; then
+          echo "::error::Java records break debug builds (missing RecordTag). Use a final class."
+          exit 1
+        fi
+
+    - name: set up JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: gradle
+
+    # Debug builds are what you sideload while porting; compile them and the fingerprint test too.
+    - name: Build debug and unit tests
+      run: ./gradlew assembleUniversalDebug compileUniversalDebugUnitTestKotlin
+
   build:
+    needs: check
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:

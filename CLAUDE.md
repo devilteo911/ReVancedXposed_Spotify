@@ -1,3 +1,5 @@
+A patch failing on a new Spotify version (`Error while apply following Hooks`) → follow `DEVELOPMENT.md#porting-to-a-new-spotify-version`.
+
 ## Agent skills
 
 ### Issue tracker

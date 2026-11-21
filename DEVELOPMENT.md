@@ -15,9 +15,7 @@ Patches adhere to a specific structure:
 ```
 
 -   **Project-specific patches:** [app/src/main/java/io/github/chsbuffer/revancedxposed](app/src/main/java/io/github/chsbuffer/revancedxposed)
--   **Upstream patches:** [revanced-patches/patches/src/main/kotlin/app/revanced/patches](revanced-patches/patches/src/main/kotlin/app/revanced/patches)
-
-Upstream patches are included via Git submodule for reference and to utilize shared extension code. They are not modified within this project.
+-   **Extension code:** [app/src/main/java/app/revanced/extension](app/src/main/java/app/revanced/extension), copied from upstream [ReVanced Patches](https://github.com/ReVanced/revanced-patches) and edited in place. There is no submodule.
 
 ### Example: Patch Implementation (Contoso App)
 
@@ -206,10 +204,41 @@ The [FingerprintCompat.kt](app/src/main/java/io/github/chsbuffer/revancedxposed/
 As per ReVanced Patcher documentation:
 > Instead of involving many abstract changes in one patch or writing entire methods or classes in a patch, you can write code in extensions.
 
-This project shares extension code with the upstream project, located at `./revanced-patches/extensions`. Upstream organizes extensions into separate modules (e.g., `./revanced-patches/extensions/<appAlias>/src/main/java/app/revanced/extension/<appAlias>`). Modifications to shared extensions and other code under `revanced-patches` are minimized.
+Extension code lives in `app/src/main/java/app/revanced/extension/<appAlias>`, copied from upstream ReVanced Patches (`extensions/<appAlias>/src/main/java/app/revanced/extension/<appAlias>` there). Keep edits small so upstream changes stay easy to port.
+
+Extension classes must load in debug builds too: Java `record`s don't (D8 references an undefined `com.android.tools.r8.RecordTag`), so write a final class. CI enforces this.
 
 ## Unit Testing
 
 Refer to [FingerprintsKtTest.kt](app/src/test/java/io/github/chsbuffer/revancedxposed/FingerprintsKtTest.kt) for testing examples.
 
 For running tests, place necessary APKs into the `./app/binaries/` directory. APK filenames should be prefixed with their respective package names (e.g., `com.example.app-1.0.0.apk`).
+
+Run them with `./scripts/test-fingerprints.sh`. DexKit ships `libdexkit.so` for Android only, so on first run the script builds the host library (needs git, cmake, ninja, a C++20 compiler) and caches it. It prints one line per fingerprint: the match, an empty value when nothing matched, or `Skipping` when a `RequireAppVersion` bound excludes the APK.
+
+## Porting to a New Spotify Version
+
+The symptom is a toast or LSPosed log line `Error while apply following Hooks: <names>`. Work host-first: a DexKit query on the PC answers in seconds, a device round-trip costs a build and an install.
+
+1.  **Pull the APK** under test into `app/binaries/` (the code is in `base.apk`):
+    ```sh
+    adb pull "$(adb shell pm path com.spotify.music | grep base.apk | cut -d: -f2)" app/binaries/com.spotify.music-<version>.apk
+    ```
+2.  **List the broken fingerprints**: `./scripts/test-fingerprints.sh`. Done when every fingerprint the failing hooks use is listed with an empty match.
+3.  **Find the new shape** of each one. Decompile with `jadx --no-res --log-level error -d <out> <apk>` and grep for the strings, class names or callers the old fingerprint used. To check a candidate matcher, add a throwaway test under `app/src/test` that runs `DexKitBridge.create(apk).findMethod { ... }` and prints every result; the matcher is right when it returns exactly one method.
+4.  **Fix the fingerprint** and keep the old one as fallback (`runCatching { old }.getOrElse { new }`, or `recoverCatching` for a chain). Bound fingerprints that only exist on one side of the change with `@get:RequireAppVersion(minVersion = ...)` / `maxVersion`, using all four version parts (`9.2.0.0`). Done when `./scripts/test-fingerprints.sh` ends in `BUILD SUCCESSFUL`.
+5.  **Verify on device** with a debug build, then exercise the feature the hook targets (see below). Done when the log shows `apply hooks success` and the hook's own log line fires during use.
+
+### Gotchas
+
+-   **The method got inlined.** A hook on a small method never fires because ART inlined it into its callers. Match the wrapper (e.g. by its error string) and hook the larger method it calls; see `homeSectionMapperFingerprint`.
+-   **The code path moved.** A fingerprint can still match a method the app no longer calls (9.2 builds the home from per-section mapping, not `HomeStructure.getSections`). If the hook installs but its log line never fires, find the live caller in the decompiled code.
+-   **Behaviour moved inline.** When the logic you replaced with a constant is inlined into a bigger method, hook that method and fake the inner call with `scopedHook` instead; see `FixThirdPartyLaunchersWidgets`.
+-   **A helper class failed to load.** `NoClassDefFoundError` is an `Error`, so `catch (Exception)` in extension code lets it through and the hook dies silently. Check the LSPosed log.
+
+### Debugging on Device
+
+-   **Install a debug build**: `./gradlew assembleUniversalDebug -PPACKAGE_NAME_SEED=<n>`, then `adb install -r app/build/outputs/apk/universal/debug/app-universal-debug.apk`. The package name derives from the seed, so reuse one seed to update in place; a new package must be enabled and scoped in LSPosed Manager. Debug builds skip the DexKit cache and turn on logging.
+-   **Logcat, tag `revanced`**: fingerprint matches (`<name> Matches: ...`, `Fingerprint <name> Not Found`) and extension logs. Debug builds only: release strips `Logger` through ProGuard.
+-   **LSPosed log** (`/data/adb/lspd/log/modules_*.log`, root): module loading, `Error while apply following Hooks`, and exceptions thrown inside hook callbacks, which never reach logcat.
+-   **Restart the app** to reload hooks: `adb shell am force-stop com.spotify.music`, then launch it again.
