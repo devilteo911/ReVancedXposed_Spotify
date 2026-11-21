@@ -2,6 +2,7 @@ package io.github.chsbuffer.revancedxposed.spotify.misc
 
 import io.github.chsbuffer.revancedxposed.AccessFlags
 import io.github.chsbuffer.revancedxposed.Opcode
+import io.github.chsbuffer.revancedxposed.RequireAppVersion
 import io.github.chsbuffer.revancedxposed.SkipTest
 import io.github.chsbuffer.revancedxposed.findClassDirect
 import io.github.chsbuffer.revancedxposed.findFieldDirect
@@ -26,19 +27,34 @@ val buildQueryParametersFingerprint = findMethodDirect {
         }
     }.single()
 }
-val contextFromJsonFingerprint = fingerprint {
-    opcodes(
-        Opcode.INVOKE_STATIC,
-        Opcode.MOVE_RESULT_OBJECT,
-        Opcode.INVOKE_VIRTUAL,
-        Opcode.MOVE_RESULT_OBJECT,
-        Opcode.INVOKE_STATIC
-    )
-    methodMatcher {
-        name("fromJson")
-        declaredClass(
-            "voiceassistants.playermodels.ContextJsonAdapter", StringMatchType.EndsWith
-        )
+val contextFromJsonFingerprint = findMethodDirect {
+    runCatching {
+        fingerprint {
+            opcodes(
+                Opcode.INVOKE_STATIC,
+                Opcode.MOVE_RESULT_OBJECT,
+                Opcode.INVOKE_VIRTUAL,
+                Opcode.MOVE_RESULT_OBJECT,
+                Opcode.INVOKE_STATIC
+            )
+            methodMatcher {
+                name("fromJson")
+                declaredClass(
+                    "voiceassistants.playermodels.ContextJsonAdapter", StringMatchType.EndsWith
+                )
+            }
+        }
+    }.getOrElse {
+        // 9.2+: Moshi adapter replaced by a kotlinx.serialization serializer.
+        fingerprint {
+            returns("Lcom/spotify/player/model/Context;")
+            methodMatcher {
+                name("deserialize")
+                declaredClass(
+                    "voiceassistants.playermodels.ContextSerializer", StringMatchType.EndsWith
+                )
+            }
+        }
     }
 }
 
@@ -56,6 +72,8 @@ val contextMenuViewModelClass = findClassDirect {
     }.declaredClass!!
 }
 
+// 9.2 dropped getViewModel: menu items are now plain data classes, upsell removal needs a new approach.
+@get:RequireAppVersion(maxVersion = "9.2.0.0")
 val viewModelClazz = findClassDirect {
     findMethod {
         findFirst = true
@@ -63,6 +81,7 @@ val viewModelClazz = findClassDirect {
     }.single().returnType!!
 }
 
+@get:RequireAppVersion(maxVersion = "9.2.0.0")
 val isPremiumUpsellField = findFieldDirect {
     viewModelClazz().fields.filter { it.typeName == "boolean" }[1]
 }
@@ -78,8 +97,11 @@ fun structureGetSectionsFingerprint(className: String) = fingerprint {
     }
 }
 
-val homeStructureGetSectionsFingerprint =
-    structureGetSectionsFingerprint("homeapi.proto.HomeStructure")
+val homeStructureGetSectionsFingerprint = findMethodDirect {
+    runCatching { structureGetSectionsFingerprint("homeapi.proto.HomeStructure")() }
+        // 9.2+: home moved to casita.
+        .getOrElse { structureGetSectionsFingerprint("casita.v1.resolved.HomeStructure")() }
+}
 val browseStructureGetSectionsFingerprint =
     structureGetSectionsFingerprint("browsita.v1.resolved.BrowseStructure")
 
